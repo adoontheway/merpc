@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"merpc"
-	_ "merpc/codec"
 	"net"
 	"sync"
 	"time"

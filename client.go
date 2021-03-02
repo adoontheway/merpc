@@ -159,7 +159,7 @@ func (c *Client) Call(serviceMethod string, args, reply interface{}) error {
 
 func NewClient(conn net.Conn, opt *Option) (*Client, error) {
 	f := codec.NewCodecFuncMap[opt.CodecType]
-	if f != nil {
+	if f == nil {
 		err := fmt.Errorf("invalid codec type %s", opt.CodecType)
 		log.Println("rpc client: codec error - ", err)
 		return nil, err
