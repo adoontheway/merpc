@@ -8,6 +8,7 @@ import (
 	"log"
 	"merpc/codec"
 	"net"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -15,6 +16,12 @@ import (
 )
 
 const MagicNumber = 0x3bef5c
+
+const (
+	connected        = "200 Connected to Me RPC"
+	defaultRPCPath   = "/_merpc_"
+	defaultDebugPath = "/debug/merpc"
+)
 
 type Option struct {
 	MagicNumber       int        // MagicNumber marks this request is a go-rpc requst
@@ -202,6 +209,32 @@ func (s *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex
 		<-sent
 	}
 
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "CONNECT" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = io.WriteString(w, "405 must CONNECT\n")
+		return
+	}
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		log.Print("rpc hijacking ", r.RemoteAddr, ": ", err.Error())
+		return
+	}
+	_, _ = io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n")
+	s.ServeConn(conn)
+}
+
+func (s *Server) HandleHTTP() {
+	http.Handle(defaultRPCPath, s)
+	http.Handle(defaultDebugPath, debugHttp{s})
+	log.Println("rpc server debug path:", defaultDebugPath)
+}
+
+func HandleHTTP() {
+	DefaultServer.HandleHTTP()
 }
 
 func Accept(lis net.Listener) {

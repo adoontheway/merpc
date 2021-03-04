@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"merpc"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -19,28 +21,26 @@ func (f Foo) Sum(args Args, reply *int) error {
 
 func startServer(addr chan string) {
 	var foo Foo
-	if err := merpc.DefaultServer.Register(&foo); err != nil {
-		log.Fatal("register error:", err)
-	}
+
 	//pick a free port
-	l, err := net.Listen("tcp", ":0")
+	l, err := net.Listen("tcp", ":9999")
 	if err != nil {
 		log.Fatal("network error:", err)
 	}
+
+	if err := merpc.DefaultServer.Register(&foo); err != nil {
+		log.Fatal("register error:", err)
+	}
+
 	log.Println("start rpc server on", l.Addr())
+	merpc.HandleHTTP()
 	addr <- l.Addr().String()
-	merpc.Accept(l)
+	_ = http.Serve(l, nil)
 }
 
-func main() {
-	log.SetFlags(0)
-	addr := make(chan string)
-	go startServer(addr)
-
-	client, _ := merpc.Dial("tcp", <-addr)
-	defer func() {
-		_ = client.Close()
-	}()
+func call(addrCh chan string) {
+	client, _ := merpc.DialHTTP("tcp", <-addrCh)
+	defer func() { _ = client.Close() }()
 	time.Sleep(time.Second)
 	var wg sync.WaitGroup
 
@@ -50,7 +50,7 @@ func main() {
 			defer wg.Done()
 			args := &Args{Num1: i, Num2: i * i} //fmt.Sprintf("merpc req %d", i)
 			var reply int                       //string
-			if err := client.Call("Foo.Sum", args, &reply); err != nil {
+			if err := client.Call(context.Background(), "Foo.Sum", args, &reply); err != nil {
 				log.Fatal("call Foo.Sum error - ", err)
 			}
 			log.Printf("%d + %d = %d\n", args.Num1, args.Num2, reply)
@@ -58,4 +58,11 @@ func main() {
 
 	}
 	wg.Wait()
+}
+
+func main() {
+	log.SetFlags(0)
+	addr := make(chan string)
+	go startServer(addr)
+	startServer(addr)
 }
