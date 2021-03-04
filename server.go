@@ -114,7 +114,7 @@ func (s *Server) serveCodec(cc codec.Codec) {
 	for {
 		req, err := s.readRequest(cc)
 		if err != nil {
-			if req != nil {
+			if req == nil {
 				break
 			}
 			req.h.Error = err.Error()

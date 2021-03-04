@@ -63,6 +63,6 @@ func call(addrCh chan string) {
 func main() {
 	log.SetFlags(0)
 	addr := make(chan string)
-	go startServer(addr)
+	go call(addr)
 	startServer(addr)
 }
