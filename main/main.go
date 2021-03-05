@@ -4,8 +4,10 @@ import (
 	"context"
 	"log"
 	"merpc"
+	"merpc/registry"
 	"merpc/xclient"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -42,8 +44,8 @@ func foo(xc *xclient.XClient, ctx context.Context, typ, serviceMethod string, ar
 }
 
 // 为啥别人不能自动发现和注册，原来是在代码里面写死了，或者是通过配置地址来实现服务发现
-func call(addr1, addr2 string) {
-	d := xclient.NewMultiServersDiscovery([]string{"tcp@" + addr1, "tpc@" + addr2})
+func call(registry string) {
+	d := xclient.NewMeRegistryDiscovery(registry, 0)
 	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
 	defer func() { _ = xc.Close() }()
 	// send request and receive response
@@ -58,8 +60,8 @@ func call(addr1, addr2 string) {
 	wg.Wait()
 }
 
-func broadcast(addr1, addr2 string) {
-	d := xclient.NewMultiServersDiscovery([]string{"tcp@" + addr1, "tcp@" + addr2})
+func broadcast(registry string) {
+	d := xclient.NewMeRegistryDiscovery(registry, 0)
 	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
 	defer func() { _ = xc.Close() }()
 	// send request and receive response
@@ -76,7 +78,7 @@ func broadcast(addr1, addr2 string) {
 	wg.Wait()
 }
 
-func startServer(addr chan string) {
+func startServer(registerAddr string, wg *sync.WaitGroup) {
 	var foo Foo
 
 	//pick a free port
@@ -88,47 +90,38 @@ func startServer(addr chan string) {
 	if err := server.Register(&foo); err != nil {
 		log.Fatal("register error:", err)
 	}
+	registry.Heartbeat(registerAddr, "tcp@"+l.Addr().String(), 0)
+	wg.Done()
 
 	log.Println("start rpc server on", l.Addr())
 	// merpc.HandleHTTP()
-	addr <- l.Addr().String()
+	// addr <- l.Addr().String()
 	// _ = http.Serve(l, nil)
 	server.Accept(l)
 }
 
-/*
-func call(addrCh chan string) {
-	client, _ := merpc.DialHTTP("tcp", <-addrCh)
-	defer func() { _ = client.Close() }()
-	time.Sleep(time.Second)
-	var wg sync.WaitGroup
-
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			args := &Args{Num1: i, Num2: i * i} //fmt.Sprintf("merpc req %d", i)
-			var reply int                       //string
-			if err := client.Call(context.Background(), "Foo.Sum", args, &reply); err != nil {
-				log.Fatal("call Foo.Sum error - ", err)
-			}
-			log.Printf("%d + %d = %d\n", args.Num1, args.Num2, reply)
-		}(i)
-
-	}
-	wg.Wait()
+func startRegistry(wg *sync.WaitGroup) {
+	l, _ := net.Listen("tcp", ":9999")
+	registry.HandleHTTP()
+	wg.Done()
+	_ = http.Serve(l, nil)
 }
-*/
+
 func main() {
 	log.SetFlags(0)
-	ch1 := make(chan string)
-	ch2 := make(chan string)
-	go startServer(ch2)
-	go startServer(ch1)
-	addr1 := <-ch1
-	addr2 := <-ch2
+	registryAddr := "http://localhost:9999/_merpc_/registry"
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go startRegistry(&wg)
+	wg.Wait()
 
 	time.Sleep(time.Second)
-	call(addr1, addr2)
-	broadcast(addr1, addr2)
+	wg.Add(2)
+	go startServer(registryAddr, &wg)
+	go startServer(registryAddr, &wg)
+	wg.Wait()
+
+	time.Sleep(time.Second)
+	call(registryAddr)
+	broadcast(registryAddr)
 }
